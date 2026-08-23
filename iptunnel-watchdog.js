@@ -17,7 +17,8 @@
   var here = location.origin
   var tabId = Math.random().toString(36).slice(2)
   var cred = (typeof window.__ptAuth === 'string' && window.__ptAuth) ? window.__ptAuth : null
-  navigator.serviceWorker.register('/iptunnel/sw.js', { scope: '/' }).catch(function () {})
+  console.log('[iptunnel] watchdog v4 on ' + location.host + ' cred=' + (cred ? 'yes' : 'NO'))
+  navigator.serviceWorker.register('/iptunnel/sw.js', { scope: '/' }).catch(function (e) { console.warn('[iptunnel] sw register failed:', e) })
   function tele(type) {
     try {
       navigator.sendBeacon('/iptunnel/telemetry', new Blob([JSON.stringify({ host: location.host, tabId: tabId, type: type })], { type: 'application/json' }))
@@ -29,15 +30,24 @@
     return fetch(target + '/iptunnel/preauth', {
       method: 'GET', credentials: 'include',
       headers: { authorization: 'Basic ' + cred }
-    }).then(function (r) { return r.ok }).catch(function () { return false })
+    }).then(function (r) {
+      console.log('[iptunnel] preauth ' + target + ' ->', r.status)
+      return r.ok
+    }).catch(function (e) {
+      console.warn('[iptunnel] preauth ' + target + ' failed:', e)
+      return false
+    })
   }
   // mint the cookie on EVERY pool hostname (dsh_auth is host-only — each
   // trycloudflare origin stores its own copy). Keeping the whole pool warm
   // means any redirect chosen by the chase SW (moved primary OR dead-self
   // sibling) lands authenticated: no 401, no "Authentication required".
+  // Returns a promise; navigations MUST await it (a navigation aborts
+  // in-flight fetches — racing it is exactly how the :443 prompt returned).
   var lastCfg = null
   function preauthAll(cfg) {
-    if (!cred || !cfg) return
+    if (!cred || !cfg) return Promise.resolve()
+    var jobs = []
     var seen = {}
     ;[cfg.primary].concat(cfg.list || []).forEach(function (h) {
       if (!h || typeof h !== 'string') return
@@ -45,8 +55,14 @@
       target = target.replace(/\/$/, '')
       if (seen[target] || target === here) return
       seen[target] = 1
-      preauth(target)
+      jobs.push(preauth(target))
     })
+    console.log('[iptunnel] preauthAll: minting ' + jobs.length + ' host(s), primary=' + cfg.primary)
+    return Promise.all(jobs.map(function (p) { return p.catch(function () {}) }))
+  }
+  // never let a slow preauth strand the tab: cap the wait at 8s
+  function settle(p) {
+    return Promise.race([p, new Promise(function (res) { setTimeout(res, 8000) })])
   }
   tele('load')
   window.addEventListener('pagehide', function () { tele('hide') })
@@ -64,8 +80,14 @@
   }
   function tick() {
     tele('tick')
+    console.log('[iptunnel] tick on ' + location.host + ' tickMs=' + tickMs)
     fetch('/iptunnel/health', { cache: 'no-store' }).then(function (r) {
-      if (!r.ok) { tickMs = 30000; preauthAll(lastCfg); location.replace('/iptunnel/entry'); return } // self dead -> re-home
+      if (!r.ok) { // self dead -> re-home (mint first, then navigate)
+        console.warn('[iptunnel] health ' + r.status + ' on ' + location.host + ' — re-homing via entry')
+        tickMs = 30000
+        settle(preauthAll(lastCfg)).then(function () { location.replace('/iptunnel/entry') })
+        return
+      }
       fetch('/iptunnel/sw-config', { cache: 'no-store' }).then(function (r2) { return r2.json() }).then(function (c) {
         lastCfg = c
         try {
@@ -73,15 +95,20 @@
             cache.put('/iptunnel/sw-config', new Response(JSON.stringify(c), { headers: { 'content-type': 'application/json' } }))
           })
         } catch (e) { /* cache unavailable */ }
-        preauthAll(c)
         if (c && c.primary && c.primary !== here) {
+          console.log('[iptunnel] primary moved ' + here + ' -> ' + c.primary + ' — minting then chasing')
           tickMs = 30000
-          location.replace('/iptunnel/entry')
+          settle(preauthAll(c)).then(function () { location.replace('/iptunnel/entry') })
           return
         }
+        settle(preauthAll(c))
         backOff()
       }).catch(function () { backOff() })
-    }).catch(function () { tickMs = 30000; preauthAll(lastCfg); location.replace('/iptunnel/entry') })
+    }).catch(function () {
+      console.warn('[iptunnel] health fetch failed on ' + location.host + ' — re-homing via entry')
+      tickMs = 30000
+      settle(preauthAll(lastCfg)).then(function () { location.replace('/iptunnel/entry') })
+    })
   }
   schedule()
 })()

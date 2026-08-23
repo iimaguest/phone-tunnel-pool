@@ -45,10 +45,18 @@ if (!PASS) { console.error('DSH_PROXY_PASS is required'); process.exit(1) }
 const SW_SRC = existsSync(HERE + 'iptunnel-sw.js') ? readFileSync(HERE + 'iptunnel-sw.js', 'utf8') : ''
 const WD_SRC = existsSync(HERE + 'iptunnel-watchdog.js') ? readFileSync(HERE + 'iptunnel-watchdog.js', 'utf8') : ''
 const ENTRY_HTML = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>tunnel entry</title></head><body><script>' +
-  '(function(){var go=function(){location.replace("/")};' +
-  'if(!("serviceWorker" in navigator))return go();' +
-  'navigator.serviceWorker.register("/iptunnel/sw.js",{scope:"/"}).then(go,go)})()' +
-  '</script></body></html>'
+  'window.__ptAuth=' + JSON.stringify(Buffer.from('dsh:' + PASS).toString('base64')) + ';' +
+  'console.log("[iptunnel] entry on " + location.host + " — minting local auth cookie before landing");' +
+  '(function(){' +
+  'var go=function(){location.replace("/")};' +
+  'fetch("/iptunnel/preauth",{method:"GET",credentials:"include",headers:{authorization:"Basic "+window.__ptAuth}})' +
+  '.then(function(r){console.log("[iptunnel] entry preauth self:", r.status); return r.ok})' +
+  '.catch(function(e){console.warn("[iptunnel] entry preauth self failed:", e); return false})' +
+  '.then(function(){' +
+  'if(!("serviceWorker" in navigator)){go();return}' +
+  'navigator.serviceWorker.register("/iptunnel/sw.js",{scope:"/"}).then(go,go)' +
+  '})})()' +
+  '</script><script src="/iptunnel/watchdog.js"></script></body></html>'
 
 const PUBLIC = new Set([
   '/iptunnel/health', '/iptunnel/sw.js', '/iptunnel/sw-config',
