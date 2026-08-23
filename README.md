@@ -71,9 +71,13 @@ daemon's state file and log live in the per-OS temp directory
 
 ## Screenshots
 
-![dsh web on a phone, reached through the tunnel pool](docs/phone-on-tunnel.jpg)
+<p align="center">
+  <img src="docs/phone-on-tunnel.jpg" alt="dsh web on a phone, reached through the tunnel pool" width="280">
+</p>
 
-![Tunnel pool widget: a phone tunnel enabled with a live pool of generations](docs/screenshot-widget.png)
+<p align="center">
+  <img src="docs/screenshot-widget.png" alt="Tunnel pool widget: a phone tunnel enabled with a live pool of generations" width="380">
+</p>
 
 *Live hostnames, credentials and the QR are blurred out in these shots.*
 
