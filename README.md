@@ -1,23 +1,25 @@
 # phone-tunnel-pool — Cloudflare quick-tunnel pool for the dsh web GUI
 
+**English** | [简体中文](./README.zh-CN.md)
+
 Enable/disable a **self-healing Cloudflare quick-tunnel pool** for
 `http://127.0.0.1:3080` (the DeepSeek Harness web GUI) from a floating widget
 with a scannable QR code. One scan from your phone, and the pool keeps
 itself alive:
 
-- **Generational rotation** (12 h): a new pair of tunnels spawns on schedule;
+- **Generational rotation (12h):** a new pair of tunnels spawns on schedule;
   older generations stay alive while anything is still on them.
-- **Chase service worker**: every origin your browser touches registers a
+- **Chase service worker:** every origin your browser touches registers a
   service worker. Dead or rotated hostnames redirect to a live sibling or the
   newest primary — the same open tab survives generation changes as long as
   it stays connected.
-- **Prompt-free migrations**: the proxy injects credentials only into pages it
+- **Prompt-free migrations:** the proxy injects credentials only into pages it
   has already authenticated; before any redirect the watchdog pre-authenticates
   the target hostname (minting its auth cookie), so migrations land
   authenticated — no "Authentication required" popups.
-- **Usage-based retirement**: generations retire only when idle
+- **Usage-based retirement:** generations retire only when idle
   (no tabs / websockets / recent traffic) or at a hard age cap.
-- **Respawn with backoff**: dead tunnels are replaced with new hostnames;
+- **Respawn with backoff:** dead tunnels are replaced with new hostnames;
   quick-tunnel mint quota (Cloudflare 429) is respected via exponential
   backoff + a 2-probe dead-grace (DNS propagation).
 
@@ -59,9 +61,13 @@ that fails profile boot ("cannot resolve profile bundle").
 The widget **preflights these on dsh web start** and shows a yellow warning
 line (with the exact fix, e.g. `brew install cloudflared`) before you even
 click Enable; the daemon also fails fast with a readable error if cloudflared
-is missing at Enable time. cloudflared versions 2024.8+ get the full feature
-flag set; older builds (apt/dnf packages) get a reduced, compatible flag set —
-the daemon gates flags on `cloudflared --version`.
+is missing at Enable time, and `refresh` in the popup re-checks everything —
+a stale error clears once the prereqs pass.
+
+The feature flag set is version-gated on `cloudflared --version`:
+2024.6+ enables the opt-in post-quantum handshake (`DSH_PQ=1`), 2024.8+ adds
+`--management-diagnostics=false`; older builds (apt/dnf packages) get a
+reduced, compatible flag set.
 
 **Platforms.** macOS, Linux and Windows (Windows uses PowerShell for process
 cleanup; `caffeinate` is macOS-only and silently skipped elsewhere). The
@@ -112,14 +118,14 @@ worker), `iptunnel-watchdog.js` (open-tab watchdog), `lib/client.js`
   (retire after 20 min idle), `DSH_PQ` — post-quantum handshake is **opt-in**
   (`DSH_PQ=1`) because it costs CPU per connection; without it the tunnel uses
   the classic handshake.
-- **Phone battery**: the watchdog backs off 30s → 300s (5 min) while nothing
-  changes
-- **Keep-awake is opt-in**: `caffeinate` (macOS) is **off by default**; turn it
+- **Phone battery:** the watchdog backs off 30s → 300s (5 min) while nothing
+  changes.
+- **Keep-awake is opt-in:** `caffeinate` (macOS) is **off by default**; turn it
   on in the widget ("Keep machine awake while enabled") or via
   `DSH_CAFFEINATE=1` — it applies on the next Enable (and lets the display
   sleep — `-i` only, no screen-on drain). Without it, an idle MacBook may
   sleep and the pool goes quiet until it wakes.
-- Daemon log is capped at 512 KB (keeps the last 128 KB); probes run at 30 s.
+- Daemon log is capped at 512 KB (keeps the last 128 KB); probes run at 30s.
 
 ## Security model
 
@@ -142,8 +148,8 @@ worker), `iptunnel-watchdog.js` (open-tab watchdog), `lib/client.js`
   carries the same pattern for any local port; a named tunnel is the
   lifetime endgame (one stable hostname → no re-scans, no prompts, no quota).
 
-## License note
+## License
 
-Third-party code: [cloudflared](https://github.com/cloudflare/cloudflared)
-(distributed by Cloudflare), the Python `qrcode` library — used at runtime,
-not vendored.
+Apache-2.0 — see [LICENSE](./LICENSE). Third-party code:
+[cloudflared](https://github.com/cloudflare/cloudflared) (distributed by
+Cloudflare), the Python `qrcode` library — used at runtime, not vendored.
