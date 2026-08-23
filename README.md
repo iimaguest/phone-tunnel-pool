@@ -52,7 +52,8 @@ that fails profile boot ("cannot resolve profile bundle").
 
 *Live hostnames, credentials and the QR are blurred out in these shots.*
 
-Requirements on the host: `cloudflared` (`brew install cloudflared`), `node`,
+Requirements on the host: `cloudflared` on PATH (`brew install cloudflared`, or
+point `DSH_CLOUDFLARED` at the binary), `node`,
 `python3` with the `qrcode` package (`pip install qrcode`).
 
 ## How it's wired
