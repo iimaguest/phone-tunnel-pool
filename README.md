@@ -54,7 +54,15 @@ that fails profile boot ("cannot resolve profile bundle").
 
 Requirements on the host: `cloudflared` on PATH (`brew install cloudflared`, or
 point `DSH_CLOUDFLARED` at the binary), `node`,
-`python3` with the `qrcode` package (`pip install qrcode`).
+`python3` with the `qrcode` package (`pip install qrcode` — optional: without
+it the widget shows the URL + login instead of a scannable QR).
+
+**Platforms.** macOS, Linux and Windows (`dsh web` on Windows uses PowerShell
+for process cleanup; machine-wake (`caffeinate`) is macOS-only and silently
+skipped elsewhere). All temp/state files live in the per-OS temp directory
+(`os.tmpdir()`). cloudflared versions 2024.6+ get the full feature flag set;
+older builds (apt/dnf packages) get a reduced, compatible flag set — the
+daemon gates flags on `cloudflared --version`.
 
 ## How it's wired
 
