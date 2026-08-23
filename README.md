@@ -59,7 +59,7 @@ that fails profile boot ("cannot resolve profile bundle").
 The widget **preflights these on dsh web start** and shows a yellow warning
 line (with the exact fix, e.g. `brew install cloudflared`) before you even
 click Enable; the daemon also fails fast with a readable error if cloudflared
-is missing at Enable time. cloudflared versions 2024.6+ get the full feature
+is missing at Enable time. cloudflared versions 2024.8+ get the full feature
 flag set; older builds (apt/dnf packages) get a reduced, compatible flag set —
 the daemon gates flags on `cloudflared --version`.
 

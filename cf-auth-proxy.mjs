@@ -154,7 +154,17 @@ const rememberFail = (req) => {
   if (failStats.size > 500) for (const [k, v] of [...failStats]) if (v.windowUntil + 600000 < now) failStats.delete(k)
 }
 const COOKIE_ATTRS = 'Path=/; SameSite=Lax; HttpOnly; Secure' // tunnel is always HTTPS
-const withCookie = (headers) => ({ ...headers, 'Set-Cookie': `${COOKIE_NAME}=${TOKEN}; ${COOKIE_ATTRS}` })
+const withCookie = (headers) => {
+  // append the tunnel cookie WITHOUT dropping any cookie the origin sets
+  // (dsh web's own session/CSRF cookie must survive the proxy)
+  const out = { ...headers }
+  const ours = `${COOKIE_NAME}=${TOKEN}; ${COOKIE_ATTRS}`
+  const prev = out['set-cookie']
+  if (Array.isArray(prev)) out['set-cookie'] = [...prev, ours]
+  else if (typeof prev === 'string' && prev !== '') out['set-cookie'] = [prev, ours]
+  else out['set-cookie'] = ours
+  return out
+}
 const rewriteHeaders = (headers) => {
   const out = { ...headers }
   out.host = `${targetHost}:${targetPortStr}`
@@ -239,7 +249,9 @@ const handlePublic = (req, res) => {
     }
     const pc = {
       'access-control-allow-origin': allowOrigin,
-      'access-control-allow-credentials': 'true',
+      // credentials are only meaningful when reflecting a specific origin;
+      // with a wildcard allow-origin a browser would reject it anyway
+      ...(allowOrigin === '*' ? {} : { 'access-control-allow-credentials': 'true' }),
       'access-control-allow-headers': 'authorization, content-type',
       'access-control-allow-methods': 'GET, POST, OPTIONS',
       'access-control-max-age': '600',
@@ -356,8 +368,11 @@ server.on('upgrade', (req, socket, head) => {
     if (head && head.length) upstream.write(head)
     upstream.pipe(socket)
     socket.pipe(upstream)
-    const u = usageGet(host); u.ws++
-    socket.on('close', () => { const k = usageGet(host); if (k.ws > 0) k.ws-- })
+    const u = usageGet(host)
+    if (u !== null) {
+      u.ws++
+      socket.on('close', () => { if (u.ws > 0) u.ws-- })
+    }
   })
   upstream.on('error', () => socket.destroy())
   socket.on('error', () => upstream.destroy())
