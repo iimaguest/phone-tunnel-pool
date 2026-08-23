@@ -119,7 +119,10 @@ worker), `iptunnel-watchdog.js` (open-tab watchdog), `lib/client.js`
 ## Security model
 
 - The password is **generated per Enable**, held in memory, shown in the
-  widget and embedded in the QR; nothing is committed or persisted.
+  widget and embedded in the QR; nothing is committed or published. (The
+  daemon keeps the *current* credentials in a `0600` state file under the OS
+  temp dir so the tunnel survives a dsh web restart; that file is deleted on
+  disable.)
 - `/iptunnel/*` service paths (health, sw-config, sw.js, entry, watchdog.js,
   telemetry, preauth) are **public by necessity** — browsers fetch service
   workers without credentials; they carry hostnames and pool liveness only.

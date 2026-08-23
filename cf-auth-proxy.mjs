@@ -62,16 +62,24 @@ let poolConfig = { primary: null, gen: 0, list: [] }
 
 // ---- per-host usage accounting ----
 // usage[host] = { lastSeen, req, ws, tabs:Map<tabId,ts>, clients:Map<ip,ts> }
+// telemetry is unauthenticated, so cap the number of distinct hosts tracked
+// (a hostile client must not grow the map without bound).
 const usage = new Map()
+const MAX_USAGE_HOSTS = 400
 const usageGet = (host) => {
   let u = usage.get(host)
-  if (!u) { u = { lastSeen: 0, req: 0, ws: 0, tabs: new Map(), clients: new Map() }; usage.set(host, u) }
+  if (!u) {
+    if (usage.size >= MAX_USAGE_HOSTS) return null
+    u = { lastSeen: 0, req: 0, ws: 0, tabs: new Map(), clients: new Map() }
+    usage.set(host, u)
+  }
   return u
 }
 const recordRequest = (req) => {
   const host = (req.headers.host || '').toLowerCase()
   if (!host) return
   const u = usageGet(host)
+  if (u === null) return
   u.lastSeen = Date.now()
   u.req++
   const xff = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.headers['cf-connecting-ip'] || ''
@@ -117,17 +125,28 @@ const authorized = (req) => {
 }
 // per-IP auth-failure throttle: 20 failures/60s -> 429 for 30s (a legit phone
 // authenticates a handful of times; this only trips on brute-force attempts)
+// cloudflared always connects from 127.0.0.1, so req.socket.remoteAddress is
+// meaningless; the only trustworthy key is CF-Connecting-IP, forwarded by the
+// Cloudflare edge. If it is absent we skip throttling rather than lump every
+// client into one global bucket (20 fails would lock out everyone).
 const failStats = new Map()
-const clientIp = (req) => (req.headers['cf-connecting-ip'] || req.socket.remoteAddress || '?')
+const clientIp = (req) => {
+  const ip = req.headers['cf-connecting-ip']
+  return typeof ip === 'string' && ip !== '' ? ip : null
+}
 const authLocked = (req) => {
-  const f = failStats.get(clientIp(req))
+  const key = clientIp(req)
+  if (key === null) return false
+  const f = failStats.get(key)
   return f !== undefined && f.lockedUntil > Date.now()
 }
 const rememberFail = (req) => {
+  const key = clientIp(req)
+  if (key === null) return false
   const now = Date.now()
-  let f = failStats.get(clientIp(req))
+  let f = failStats.get(key)
   if (f === undefined || f.windowUntil < now) {
-    failStats.set(clientIp(req), { n: 1, windowUntil: now + 60000, lockedUntil: 0 })
+    failStats.set(key, { n: 1, windowUntil: now + 60000, lockedUntil: 0 })
   } else {
     f.n++
     if (f.n >= 20) { f.lockedUntil = now + 30000; f.n = 0 }
@@ -188,10 +207,12 @@ const handlePublic = (req, res) => {
         const host = String(j.host || '').toLowerCase()
         if (host) {
           const u = usageGet(host)
-          const now = Date.now()
-          if (u.tabs.size > 200) for (const [k, ts] of [...u.tabs]) if (now - ts > 60000) u.tabs.delete(k)
-          u.tabs.set(String(j.tabId || 'x'), now)
-          u.lastSeen = now
+          if (u !== null) {
+            const now = Date.now()
+            if (u.tabs.size > 200) for (const [k, ts] of [...u.tabs]) if (now - ts > 60000) u.tabs.delete(k)
+            u.tabs.set(String(j.tabId || 'x'), now)
+            u.lastSeen = now
+          }
         }
       } catch { /* ignore junk */ }
       send(res, 204, { ...cors }, '')

@@ -7,8 +7,10 @@ set -uo pipefail
 BASE=http://127.0.0.1:3080
 J() { python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('$1') or '')"; }
 JP() { python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('$1') or '')"; }
-STORE=/tmp/iptunnel-state.json
-LOG=/tmp/iptunnel-daemon.log
+# the daemon uses os.tmpdir() (== DSH_TMP when set); on macOS that is NOT /tmp
+TMPT=$(python3 -c "import tempfile;print(tempfile.gettempdir())" 2>/dev/null || printf /tmp)
+STORE="${DSH_TMP:-$TMPT}/iptunnel-state.json"
+LOG="${DSH_TMP:-$TMPT}/iptunnel-daemon.log"
 
 echo "[1/8] enabling tunnel…"
 R=$(curl -s -X POST $BASE/iptunnel/enable)
