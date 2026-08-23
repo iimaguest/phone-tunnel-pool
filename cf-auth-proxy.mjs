@@ -59,6 +59,18 @@ const MAX_HTML = 4 * 1024 * 1024
 
 // ---- pool config (pushed by the daemon via __ctl/config) ----
 let poolConfig = { primary: null, gen: 0, list: [] }
+// trycloudflare origins that were recently in the pool (rotation keeps 2 gens
+// in the config for a short while, but a tab on a RETIRED host still needs to
+// mint the sibling's cookie before re-homing: its Origin is no longer in
+// poolConfig). Bounded — this is only a CORS-origin check, not auth.
+const recentPoolHosts = []
+const rememberPoolHost = (host) => {
+  if (!host) return
+  const h = String(host).toLowerCase()
+  if (recentPoolHosts.includes(h)) return
+  recentPoolHosts.push(h)
+  if (recentPoolHosts.length > 16) recentPoolHosts.shift()
+}
 
 // ---- per-host usage accounting ----
 // usage[host] = { lastSeen, req, ws, tabs:Map<tabId,ts>, clients:Map<ip,ts> }
@@ -248,7 +260,8 @@ const handlePublic = (req, res) => {
       const hostOf = (o) => o.replace(/^https?:\/\//, '').replace(/:\d+$/, '').toLowerCase()
       const poolHosts = new Set([...(poolConfig.list || []), poolConfig.primary].filter(Boolean).map(hostOf))
       const self = hostOf(req.headers.host || '')
-      if (!poolHosts.has(hostOf(req.headers.origin)) && hostOf(req.headers.origin) !== self) {
+      const o = hostOf(req.headers.origin)
+      if (!poolHosts.has(o) && o !== self && !recentPoolHosts.includes(o)) {
         return send(res, 403, { 'content-type': 'text/plain; charset=utf-8', 'access-control-allow-origin': 'null' }, 'origin not allowed')
       }
     }
@@ -280,6 +293,8 @@ const handleCtl = (req, res) => {
         const j = JSON.parse(body)
         if (typeof j.primary === 'string' && Array.isArray(j.list)) {
           poolConfig = { primary: j.primary, gen: Number(j.gen) || 0, list: j.list.map(String), ts: Date.now() }
+          rememberPoolHost(poolConfig.primary)
+          poolConfig.list.forEach(rememberPoolHost)
           send(res, 200, { 'content-type': 'application/json' }, '{"ok":true}')
           console.log(`[iptunnel] config: gen=${poolConfig.gen} primary=${poolConfig.primary} list=${poolConfig.list.length}`)
           return

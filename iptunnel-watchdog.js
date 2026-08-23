@@ -31,6 +31,23 @@
       headers: { authorization: 'Basic ' + cred }
     }).then(function (r) { return r.ok }).catch(function () { return false })
   }
+  // mint the cookie on EVERY pool hostname (dsh_auth is host-only — each
+  // trycloudflare origin stores its own copy). Keeping the whole pool warm
+  // means any redirect chosen by the chase SW (moved primary OR dead-self
+  // sibling) lands authenticated: no 401, no "Authentication required".
+  var lastCfg = null
+  function preauthAll(cfg) {
+    if (!cred || !cfg) return
+    var seen = {}
+    ;[cfg.primary].concat(cfg.list || []).forEach(function (h) {
+      if (!h || typeof h !== 'string') return
+      var target = h.indexOf('http') === 0 ? h : 'https://' + h
+      target = target.replace(/\/$/, '')
+      if (seen[target] || target === here) return
+      seen[target] = 1
+      preauth(target)
+    })
+  }
   tele('load')
   window.addEventListener('pagehide', function () { tele('hide') })
   // battery back-off: while nothing changes, stretch the tick 30s -> 45s ->
@@ -48,21 +65,23 @@
   function tick() {
     tele('tick')
     fetch('/iptunnel/health', { cache: 'no-store' }).then(function (r) {
-      if (!r.ok) { tickMs = 30000; location.replace('/iptunnel/entry'); return } // self dead -> re-home
+      if (!r.ok) { tickMs = 30000; preauthAll(lastCfg); location.replace('/iptunnel/entry'); return } // self dead -> re-home
       fetch('/iptunnel/sw-config', { cache: 'no-store' }).then(function (r2) { return r2.json() }).then(function (c) {
+        lastCfg = c
         try {
           caches.open('iptunnel-sw-v2').then(function (cache) {
             cache.put('/iptunnel/sw-config', new Response(JSON.stringify(c), { headers: { 'content-type': 'application/json' } }))
           })
         } catch (e) { /* cache unavailable */ }
+        preauthAll(c)
         if (c && c.primary && c.primary !== here) {
           tickMs = 30000
-          preauth(c.primary).then(function () { location.replace('/iptunnel/entry') })
+          location.replace('/iptunnel/entry')
           return
         }
         backOff()
       }).catch(function () { backOff() })
-    }).catch(function () { tickMs = 30000; location.replace('/iptunnel/entry') })
+    }).catch(function () { tickMs = 30000; preauthAll(lastCfg); location.replace('/iptunnel/entry') })
   }
   schedule()
 })()
