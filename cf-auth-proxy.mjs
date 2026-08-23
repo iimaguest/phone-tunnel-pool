@@ -29,7 +29,7 @@
 import http from 'node:http'
 import net from 'node:net'
 import crypto from 'node:crypto'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const [listenHost, listenPortStr, targetHost, targetPortStr] = process.argv.slice(2)
@@ -42,8 +42,15 @@ const HERE = fileURLToPath(new URL('.', import.meta.url))
 if (!PASS) { console.error('DSH_PROXY_PASS is required'); process.exit(1) }
 
 // ---- static assets (self-contained; daemon self-heals the sibling files) ----
-const SW_SRC = existsSync(HERE + 'iptunnel-sw.js') ? readFileSync(HERE + 'iptunnel-sw.js', 'utf8') : ''
-const WD_SRC = existsSync(HERE + 'iptunnel-watchdog.js') ? readFileSync(HERE + 'iptunnel-watchdog.js', 'utf8') : ''
+function swSrc() {
+  try { return readFileSync(HERE + 'iptunnel-sw.js', 'utf8') } catch (e) { return '' }
+}
+// watchdog served per-request from disk: the daemon refreshes the temp copy
+// every maintain() pass, so browser tabs always get the CURRENT watchdog
+// without a proxy/daemon restart (9KB file, single-user app — trivial).
+function wdSrc() {
+  try { return readFileSync(HERE + 'iptunnel-watchdog.js', 'utf8') } catch (e) { return '' }
+}
 const ENTRY_HTML = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>tunnel entry</title></head><body><script>' +
   'window.__ptAuth=' + JSON.stringify(Buffer.from('dsh:' + PASS).toString('base64')) + ';' +
   'console.log("[iptunnel] entry on " + location.host + " — minting local auth cookie before landing");' +
@@ -227,8 +234,8 @@ const handlePublic = (req, res) => {
   const path = pathOf(req)
   if (path === '/iptunnel/health') return send(res, 200, { ...cors, 'content-type': 'text/plain' }, 'ok')
   if (path === '/iptunnel/sw-config') return send(res, 200, { ...cors, 'content-type': 'application/json' }, JSON.stringify(poolConfig))
-  if (path === '/iptunnel/sw.js') return send(res, 200, { 'content-type': 'text/javascript', 'cache-control': 'no-cache', 'service-worker-allowed': '/' }, SW_SRC)
-  if (path === '/iptunnel/watchdog.js') return send(res, 200, { 'content-type': 'text/javascript', 'cache-control': 'no-cache' }, WD_SRC)
+  if (path === '/iptunnel/sw.js') return send(res, 200, { 'content-type': 'text/javascript', 'cache-control': 'no-cache', 'service-worker-allowed': '/' }, swSrc())
+  if (path === '/iptunnel/watchdog.js') return send(res, 200, { 'content-type': 'text/javascript', 'cache-control': 'no-cache' }, wdSrc())
   if (path === '/iptunnel/entry') return send(res, 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }, ENTRY_HTML)
   if (path === '/iptunnel/telemetry') {
     let body = ''

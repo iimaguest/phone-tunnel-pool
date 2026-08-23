@@ -78,16 +78,27 @@
     tickMs = Math.min(300000, Math.round((tickMs || 30000) * 1.5))
     schedule()
   }
+  // 2-strike health grace: a single transient 530 must NOT re-home the tab
+  // (the re-home on a still-alive host is a full page reload — users see a
+  // self-refresh out of nowhere; only a genuinely dead host moves us).
+  var healthFails = 0
+  function rehome(why) {
+    console.warn('[iptunnel] ' + why + ' on ' + location.host + ' (' + healthFails + '/2)')
+    tickMs = 30000
+    if (healthFails < 2) return
+    healthFails = 0
+    settle(preauthAll(lastCfg)).then(function () { location.replace('/iptunnel/entry') })
+  }
   function tick() {
     tele('tick')
     console.log('[iptunnel] tick on ' + location.host + ' tickMs=' + tickMs)
     fetch('/iptunnel/health', { cache: 'no-store' }).then(function (r) {
       if (!r.ok) { // self dead -> re-home (mint first, then navigate)
-        console.warn('[iptunnel] health ' + r.status + ' on ' + location.host + ' — re-homing via entry')
-        tickMs = 30000
-        settle(preauthAll(lastCfg)).then(function () { location.replace('/iptunnel/entry') })
+        healthFails += 1
+        rehome('health ' + r.status)
         return
       }
+      healthFails = 0
       fetch('/iptunnel/sw-config', { cache: 'no-store' }).then(function (r2) { return r2.json() }).then(function (c) {
         lastCfg = c
         try {
@@ -105,9 +116,8 @@
         backOff()
       }).catch(function () { backOff() })
     }).catch(function () {
-      console.warn('[iptunnel] health fetch failed on ' + location.host + ' — re-homing via entry')
-      tickMs = 30000
-      settle(preauthAll(lastCfg)).then(function () { location.replace('/iptunnel/entry') })
+      healthFails += 1
+      rehome('health fetch failed')
     })
   }
   schedule()
