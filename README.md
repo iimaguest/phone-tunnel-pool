@@ -44,6 +44,14 @@ state automatically — **never edit `~/.dsh/profiles/web/package.json` by hand*
 a stray bundle entry with no matching dependency is exactly the kind of state
 that fails profile boot ("cannot resolve profile bundle").
 
+## Screenshots
+
+![dsh web on a phone, reached through the tunnel pool](docs/phone-on-tunnel.jpg)
+
+![Tunnel pool widget: a phone tunnel enabled with a live pool of generations](docs/screenshot-widget.png)
+
+*Live hostnames, credentials and the QR are blurred out in these shots.*
+
 Requirements on the host: `cloudflared` (`brew install cloudflared`), `node`,
 `python3` with the `qrcode` package (`pip install qrcode`).
 
