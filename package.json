@@ -19,5 +19,6 @@
       "platform": "web",
       "immediately": true
     }
-  }
+  },
+  "license": "Apache-2.0"
 }
