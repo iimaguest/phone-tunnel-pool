@@ -146,7 +146,7 @@ const authLocked = (req) => {
 const rememberFail = (req) => {
   const key = clientIp(req)
   const now = Date.now()
-  let f = failStats.get(key)
+  const f = failStats.get(key)
   if (f === undefined || f.windowUntil < now) {
     failStats.set(key, { n: 1, windowUntil: now + 60000, lockedUntil: 0 })
   } else {
@@ -243,7 +243,7 @@ const handlePublic = (req, res) => {
   if (path === '/iptunnel/preauth') {
     // only the pool's own origins may participate (a random web page cannot
     // use the user's tunnel as a CORS oracle); no Origin = non-browser caller.
-    let allowOrigin = req.headers.origin || '*'
+    const allowOrigin = req.headers.origin || '*'
     if (req.headers.origin) {
       const hostOf = (o) => o.replace(/^https?:\/\//, '').replace(/:\d+$/, '').toLowerCase()
       const poolHosts = new Set([...(poolConfig.list || []), poolConfig.primary].filter(Boolean).map(hostOf))
