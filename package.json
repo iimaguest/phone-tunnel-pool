@@ -1,0 +1,23 @@
+{
+  "name": "phone-tunnel-pool",
+  "version": "0.3.0",
+  "description": "One-click Cloudflare quick-tunnel pool for the dsh web GUI \u2014 access from your phone via QR, self-healing generations, chase service worker.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}

@@ -1,0 +1,8 @@
+# phone-tunnel-pool bundle patch: insert the dual-face row (host + client).
+# Host half: starts/stops the hardened cloudflared quick tunnel + auth proxy,
+# generates the QR SVG (Python qrcode), serves /iptunnel JSON routes.
+# Client half: floating shell.overlay widget with enable/disable, URL,
+# login and QR code.
+- insert:
+    - id: phone-tunnel-pool
+      name: phone-tunnel-pool
