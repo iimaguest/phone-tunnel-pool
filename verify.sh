@@ -65,7 +65,8 @@ PHASE=$(curl -s $BASE/iptunnel/state | J phase)
 PWL=$(curl -s $BASE/iptunnel/state | J password)
 LTMP=$(curl -s $BASE/iptunnel/state | J url)
 PROCS=$(pgrep -f 'daemon.mjs|cf-auth-proxy.mjs' | wc -l | tr -d ' ')
-echo "  phase=$PHASE password=${PWL:-null} url=${LTMP:-null} leftover_procs=$PROCS"
+PWPRINT=$([ -z "$PWL" ] && printf unset || printf "<set>")
+echo "  phase=$PHASE password=$PWPRINT url=${LTMP:-null} leftover_procs=$PROCS"
 [ "$PHASE" = "disabled" ] || { echo "  FAIL: state $PHASE"; exit 1; }
 [ -z "$PWL" ] || echo "  WARN: password still set (host fix not loaded? restart dsh web)"
 

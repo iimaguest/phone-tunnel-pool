@@ -64,8 +64,10 @@ flag set; older builds (apt/dnf packages) get a reduced, compatible flag set —
 the daemon gates flags on `cloudflared --version`.
 
 **Platforms.** macOS, Linux and Windows (Windows uses PowerShell for process
-cleanup; `caffeinate` is macOS-only and silently skipped elsewhere). All
-temp/state files live in the per-OS temp directory (`os.tmpdir()`).
+cleanup; `caffeinate` is macOS-only and silently skipped elsewhere). The
+daemon's state file and log live in the per-OS temp directory
+(`os.tmpdir()`); the widget settings file (`iptunnel-settings.json`) lives in
+`~/.dsh`.
 
 ## Screenshots
 
@@ -100,9 +102,8 @@ worker), `iptunnel-watchdog.js` (open-tab watchdog), `lib/client.js`
 
 - **Disabled = zero processes** (just the floating pill in the GUI).
 - **Enabled** = 1 node daemon + 1 auth proxy + 2 `cloudflared` per live
-  generation. Default ceiling: 4 generations × 2 = **8 tunnels**; idle
-  generations retire on their own (default 60 min idle), so steady state is
-  normally 4.
+  generation. Default ceiling: 4 generations × 2 = **8 tunnels** (a busy pool
+  runs all of them; idle generations retire on their own after 60 min).
 - Knobs to shrink further: `DSH_MAX_GENS=2` (≤4 tunnels), `DSH_IDLE_MS=1200000`
   (retire after 20 min idle), `DSH_PQ` — post-quantum handshake is **opt-in**
   (`DSH_PQ=1`) because it costs CPU per connection; without it the tunnel uses

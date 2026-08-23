@@ -125,24 +125,26 @@ const authorized = (req) => {
 }
 // per-IP auth-failure throttle: 20 failures/60s -> 429 for 30s (a legit phone
 // authenticates a handful of times; this only trips on brute-force attempts)
-// cloudflared always connects from 127.0.0.1, so req.socket.remoteAddress is
-// meaningless; the only trustworthy key is CF-Connecting-IP, forwarded by the
-// Cloudflare edge. If it is absent we skip throttling rather than lump every
-// client into one global bucket (20 fails would lock out everyone).
+// cloudflared always connects from 127.0.0.1, so the ONLY trustworthy per-IP
+// key for tunnel traffic is CF-Connecting-IP, forwarded by the Cloudflare
+// edge; when the header is absent (direct/local callers) we fall back to the
+// socket address rather than exempting them altogether.
 const failStats = new Map()
 const clientIp = (req) => {
   const ip = req.headers['cf-connecting-ip']
-  return typeof ip === 'string' && ip !== '' ? ip : null
+  if (typeof ip === 'string' && ip !== '') return ip
+  // tunnel traffic always carries CF-Connecting-IP; the fallback covers
+  // callers that reach the proxy directly (local use) — they still get
+  // throttled instead of being exempt.
+  return String((req.socket && req.socket.remoteAddress) || '?')
 }
 const authLocked = (req) => {
   const key = clientIp(req)
-  if (key === null) return false
   const f = failStats.get(key)
   return f !== undefined && f.lockedUntil > Date.now()
 }
 const rememberFail = (req) => {
   const key = clientIp(req)
-  if (key === null) return false
   const now = Date.now()
   let f = failStats.get(key)
   if (f === undefined || f.windowUntil < now) {
@@ -215,7 +217,10 @@ const handlePublic = (req, res) => {
       try {
         const j = JSON.parse(body)
         const host = String(j.host || '').toLowerCase()
-        if (host) {
+        // ignore hosts that are not part of the live pool (unauthenticated
+        // endpoint: random hosts must not pollute the usage map)
+        const known = host !== '' && (String(poolConfig.primary || '').toLowerCase() === host || (poolConfig.list || []).some(function (x) { return String(x).toLowerCase() === host }))
+        if (known) {
           const u = usageGet(host)
           if (u !== null) {
             const now = Date.now()
