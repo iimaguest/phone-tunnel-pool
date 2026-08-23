@@ -1,6 +1,6 @@
 {
   "name": "phone-tunnel-pool",
-  "version": "0.3.17",
+  "version": "0.3.18",
   "description": "One-click Cloudflare quick-tunnel pool for the dsh web GUI \u2014 access from your phone via QR, self-healing generations, chase service worker.",
   "type": "module",
   "main": "lib/index.js",
