@@ -57,10 +57,10 @@ READ THIS before touching anything in this directory or re-creating the tunnel.
   while disabled it is `null`.
 - Processes (when enabled): `node <bundle>/lib/daemon.mjs` (detached parent)
   → `cloudflared tunnel --url http://127.0.0.1:3090 …` +
-  `node /tmp/cf-auth-proxy.mjs 127.0.0.1 3090 127.0.0.1 3080` + `caffeinate -dims`.
+  `node <tempdir>/cf-auth-proxy.mjs 127.0.0.1 3090 127.0.0.1 3080` + `caffeinate -dims`.
 - State endpoint (host routes, plain fetch): `curl http://127.0.0.1:3080/iptunnel/state`.
-- Daemon store: `/tmp/iptunnel-state.json` (0600, url/user/password/daemonPid);
-  daemon log: `/tmp/iptunnel-daemon.log`.
+- Daemon store: `<tempdir>/iptunnel-state.json` (0600, url/user/password/daemonPid);
+  daemon log: `<tempdir>/iptunnel-daemon.log`.
 
 ## 2. The chain (why each piece exists)
 
@@ -68,13 +68,13 @@ READ THIS before touching anything in this directory or re-creating the tunnel.
 Phone camera QR → Safari → https://dsh:pw@host.trycloudflare.com
    → Cloudflare edge (TLS; post-quantum hybrid X25519MLKEM768)
    → cloudflared connector (QUIC, hardened flags)
-   → /tmp/cf-auth-proxy.mjs on 127.0.0.1:3090   ← password gate (Basic + cookie)
+   → <tempdir>/cf-auth-proxy.mjs on 127.0.0.1:3090   ← password gate (Basic + cookie)
    → dsh web on 127.0.0.1:3080
 
    └─ all three (proxy/cloudflared/caffeinate) are children of the DETACHED
       lib/daemon.mjs, spawned by the plugin with child_process.spawn
       (detached + unref) — NOT ctx.subprocess — so they survive dsh web
-      restarts. The plugin adopts the daemon via /tmp/iptunnel-state.json.
+      restarts. The plugin adopts the daemon via <tempdir>/iptunnel-state.json.
 ```
 
 - **dsh web has NO authentication layer.** Its /api **browser-trust fence**
@@ -103,7 +103,7 @@ Permanent bundle at `~/.dsh/plugins/phone-tunnel-pool/` (symlinked into
 | `package.json` | bundle manifest: `dsh.bundle.patch` + `dsh.client` (platform web) |
 | `cordis.patch.yml` | **`insert:` row** (must be insert, NOT a plain id row — see §10) |
 | `lib/index.js` | host: daemon lifecycle (spawn detached/adopt/stop), QR via python3, `/iptunnel` routes, 30s heartbeat |
-| `lib/daemon.mjs` | **detached supervisor** — owns proxy+cloudflared+caffeinate, parses URL, writes `/tmp/iptunnel-state.json`, SIGTERM cleanup |
+| `lib/daemon.mjs` | **detached supervisor** — owns proxy+cloudflared+caffeinate, parses URL, writes `<tempdir>/iptunnel-state.json`, SIGTERM cleanup |
 | `lib/client.js` | module-loader bundle; `exports.inject = ['slots']`; overlay widget |
 | `cf-auth-proxy.mjs` | the auth proxy SOURCE (bundled; host self-heals it to /tmp at enable) |
 | `host.js` / `client.js` | dynamic-plugin variants (same logic, harness.handle RPC) — usable for `cordis_define` recipe |
@@ -142,9 +142,9 @@ The profile user patch `cordis.patch.yml` is NOT touched.
   and `pkill -f 'cloudflared tunnel --url http://127.0.0.1:3090'`.
 - **After OS reboot**: python3 `qrcode` module must exist
   (`pip install qrcode`; opencv-python-headless only for verification).
-  `/tmp/cf-auth-proxy.env` is a LEFTOVER from the early manual sessions — the
+  `<tempdir>/cf-auth-proxy.env` is a LEFTOVER from the early manual sessions — the
   plugin never reads or writes it (creds flow through spawn env vars); the
-  daemon deletes it on start. `/tmp/cf-auth-proxy.mjs` self-healed by the
+  daemon deletes it on start. `<tempdir>/cf-auth-proxy.mjs` self-healed by the
   daemon from the bundle.
 
 ## 5. Cloudflared flags (all validated 2026.8.2, brew)
@@ -272,12 +272,12 @@ the argv; edit there first, then restart dsh web.)
 
 1. ~~**Self-heal the proxy file**~~ DONE (2026-08-23; now lives in
    `lib/daemon.mjs`): copies `../cf-auth-proxy.mjs` (bundle) to `/tmp` when
-   missing and deletes any stale `/tmp/cf-auth-proxy.env`. Needs a `dsh web`
+   missing and deletes any stale `<tempdir>/cf-auth-proxy.env`. Needs a `dsh web`
    restart to load.
 2. ~~**Persistence across dsh web restarts**~~ DONE (2026-08-23, user changed
    mind): the tunnel chain moved into a DETACHED daemon (`lib/daemon.mjs`,
    `child_process.spawn` + `unref`, NOT ctx.subprocess) + state file
-   `/tmp/iptunnel-state.json` (0600); the host adopts it at boot/Enable.
+   `<tempdir>/iptunnel-state.json` (0600); the host adopts it at boot/Enable.
    Same hostname/password/QR across server restarts — no re-scan.
    + `caffeinate -dims` moved INTO the daemon (keep-alive while the tunnel
    exists, even between two dsh web processes).
@@ -301,7 +301,7 @@ the argv; edit there first, then restart dsh web.)
 
 - **Rotate per session, persist per session (user-approved)**: a password is
   generated when a daemon session starts and stored ONLY in the 0600 state
-  file /tmp/iptunnel-state.json (wiped by reboot; removed on Disable; passed
+  file <tempdir>/iptunnel-state.json (wiped by reboot; removed on Disable; passed
   to the proxy via spawn env, never argv). A session never rotates its
   password — that's what makes the QR reusable; Disable/fresh-enable = new
   secret. Never hardcode a password in the GUI/docs.
