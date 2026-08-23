@@ -107,7 +107,8 @@ worker), `iptunnel-watchdog.js` (open-tab watchdog), `lib/client.js`
   (retire after 20 min idle), `DSH_PQ` — post-quantum handshake is **opt-in**
   (`DSH_PQ=1`) because it costs CPU per connection; without it the tunnel uses
   the classic handshake.
-- **Phone battery**: the watchdog backs off 30s → 120s while nothing changes
+- **Phone battery**: the watchdog backs off 30s → 300s (5 min) while nothing
+  changes
   (radio wake-ups are the expensive part) and resets on any pool change;
   `caffeinate -i` keeps the machine awake for the tunnels but lets the
   **display sleep** (no screen-on drain on a MacBook).

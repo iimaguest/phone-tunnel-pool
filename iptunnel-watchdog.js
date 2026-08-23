@@ -34,7 +34,7 @@
   tele('load')
   window.addEventListener('pagehide', function () { tele('hide') })
   // battery back-off: while nothing changes, stretch the tick 30s -> 45s ->
-  // 60s -> 90s -> 120s (radio wake-ups cost on a phone; reset on any event)
+  // 60s -> 90s -> 150s -> 225s -> 300s (radio wake-ups cost on a phone; reset on any event)
   var tickMs = 30000
   var timer = null
   function schedule() {
@@ -42,7 +42,7 @@
     timer = setInterval(tick, tickMs)
   }
   function backOff() {
-    tickMs = Math.min(120000, Math.round((tickMs || 30000) * 1.5))
+    tickMs = Math.min(300000, Math.round((tickMs || 30000) * 1.5))
     schedule()
   }
   function tick() {
