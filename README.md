@@ -109,9 +109,11 @@ worker), `iptunnel-watchdog.js` (open-tab watchdog), `lib/client.js`
   the classic handshake.
 - **Phone battery**: the watchdog backs off 30s → 300s (5 min) while nothing
   changes
-  (radio wake-ups are the expensive part) and resets on any pool change;
-  `caffeinate -i` keeps the machine awake for the tunnels but lets the
-  **display sleep** (no screen-on drain on a MacBook).
+- **Keep-awake is opt-in**: `caffeinate` (macOS) is **off by default**; turn it
+  on in the widget ("Keep machine awake while enabled") or via
+  `DSH_CAFFEINATE=1` — it applies on the next Enable (and lets the display
+  sleep — `-i` only, no screen-on drain). Without it, an idle MacBook may
+  sleep and the pool goes quiet until it wakes.
 - Daemon log is capped at 512 KB (keeps the last 128 KB); probes run at 30 s.
 
 ## Security model
