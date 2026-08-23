@@ -1,4 +1,4 @@
-// phone-tunnel-pool watchdog (v3) — injected into harness HTML by the proxy.
+// phone-tunnel-pool watchdog (v5) — injected into harness HTML by the proxy.
 // Keeps OPEN tabs chasing the newest live pool AND avoids auth prompts:
 //  - registers the chase SW if this page's origin doesn't have it yet
 //  - every 30s: health-probes own origin; fetches pool config; when the
@@ -12,16 +12,27 @@
 //  - pagehide -> telemetry so the daemon sees tabs leave promptly
 // Chasing ALWAYS goes through /iptunnel/entry so the SW stays in charge and
 // intermediates register themselves on the way (see PLAN.md §2.4).
+//
+// CRITICAL: all URLs are built from location.origin, never relative paths.
+// The QR opens the tunnel as https://user:pass@host/ — a relative fetch
+// resolves against that credential-bearing URL and Chromium rejects it
+// ("Request cannot be constructed from a URL that includes credentials").
+// That single rejection made the health check fail on EVERY phone tick —
+// spurious re-home, reload loop, and the credential-less SW redirect that
+// finally surfaced as the :443 username/password prompt.
 (function () {
   if (!('serviceWorker' in navigator)) return
   var here = location.origin
   var tabId = Math.random().toString(36).slice(2)
   var cred = (typeof window.__ptAuth === 'string' && window.__ptAuth) ? window.__ptAuth : null
-  console.log('[iptunnel] watchdog v4 on ' + location.host + ' cred=' + (cred ? 'yes' : 'NO'))
-  navigator.serviceWorker.register('/iptunnel/sw.js', { scope: '/' }).catch(function (e) { console.warn('[iptunnel] sw register failed:', e) })
+  var healthUrl = here + '/iptunnel/health'
+  var cfgUrl = here + '/iptunnel/sw-config'
+  var entryUrl = here + '/iptunnel/entry'
+  console.log('[iptunnel] watchdog v5 on ' + location.host + ' cred=' + (cred ? 'yes' : 'NO'))
+  navigator.serviceWorker.register(here + '/iptunnel/sw.js', { scope: '/' }).catch(function (e) { console.warn('[iptunnel] sw register failed:', e) })
   function tele(type) {
     try {
-      navigator.sendBeacon('/iptunnel/telemetry', new Blob([JSON.stringify({ host: location.host, tabId: tabId, type: type })], { type: 'application/json' }))
+      navigator.sendBeacon(here + '/iptunnel/telemetry', new Blob([JSON.stringify({ host: location.host, tabId: tabId, type: type })], { type: 'application/json' }))
     } catch (e) { /* ignore */ }
   }
   // cross-origin handoff: mint the target's auth cookie before we land on it
@@ -87,29 +98,29 @@
     tickMs = 30000
     if (healthFails < 2) return
     healthFails = 0
-    settle(preauthAll(lastCfg)).then(function () { location.replace('/iptunnel/entry') })
+    settle(preauthAll(lastCfg)).then(function () { location.replace(entryUrl) })
   }
   function tick() {
     tele('tick')
     console.log('[iptunnel] tick on ' + location.host + ' tickMs=' + tickMs)
-    fetch('/iptunnel/health', { cache: 'no-store' }).then(function (r) {
+    fetch(healthUrl, { cache: 'no-store' }).then(function (r) {
       if (!r.ok) { // self dead -> re-home (mint first, then navigate)
         healthFails += 1
         rehome('health ' + r.status)
         return
       }
       healthFails = 0
-      fetch('/iptunnel/sw-config', { cache: 'no-store' }).then(function (r2) { return r2.json() }).then(function (c) {
+      fetch(cfgUrl, { cache: 'no-store' }).then(function (r2) { return r2.json() }).then(function (c) {
         lastCfg = c
         try {
           caches.open('iptunnel-sw-v2').then(function (cache) {
-            cache.put('/iptunnel/sw-config', new Response(JSON.stringify(c), { headers: { 'content-type': 'application/json' } }))
+            cache.put(here + '/iptunnel/sw-config', new Response(JSON.stringify(c), { headers: { 'content-type': 'application/json' } }))
           })
         } catch (e) { /* cache unavailable */ }
         if (c && c.primary && c.primary !== here) {
           console.log('[iptunnel] primary moved ' + here + ' -> ' + c.primary + ' — minting then chasing')
           tickMs = 30000
-          settle(preauthAll(c)).then(function () { location.replace('/iptunnel/entry') })
+          settle(preauthAll(c)).then(function () { location.replace(entryUrl) })
           return
         }
         settle(preauthAll(c))

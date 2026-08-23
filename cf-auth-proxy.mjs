@@ -55,15 +55,16 @@ const ENTRY_HTML = '<!doctype html><html><head><meta charset="utf-8"><meta name=
   'window.__ptAuth=' + JSON.stringify(Buffer.from('dsh:' + PASS).toString('base64')) + ';' +
   'console.log("[iptunnel] entry on " + location.host + " — minting local auth cookie before landing");' +
   '(function(){' +
-  'var go=function(){location.replace("/")};' +
-  'fetch("/iptunnel/preauth",{method:"GET",credentials:"include",headers:{authorization:"Basic "+window.__ptAuth}})' +
+  'var o=location.origin;' + // origin never carries the QR userinfo -> no credential-URL fetches
+  'var go=function(){location.replace(o+"/")};' +
+  'fetch(o+"/iptunnel/preauth",{method:"GET",credentials:"include",headers:{authorization:"Basic "+window.__ptAuth}})' +
   '.then(function(r){console.log("[iptunnel] entry preauth self:", r.status); return r.ok})' +
   '.catch(function(e){console.warn("[iptunnel] entry preauth self failed:", e); return false})' +
   '.then(function(){' +
   'if(!("serviceWorker" in navigator)){go();return}' +
-  'navigator.serviceWorker.register("/iptunnel/sw.js",{scope:"/"}).then(go,go)' +
+  'navigator.serviceWorker.register(o+"/iptunnel/sw.js",{scope:"/"}).then(go,go)' +
   '})})()' +
-  '</script><script src="/iptunnel/watchdog.js"></script></body></html>'
+  '</script><script>var s=document.createElement("script");s.src=location.origin+"/iptunnel/watchdog.js";document.body.appendChild(s)</script></body></html>'
 
 const PUBLIC = new Set([
   '/iptunnel/health', '/iptunnel/sw.js', '/iptunnel/sw-config',

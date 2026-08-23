@@ -18,22 +18,28 @@
 const CONFIG_PATH = '/iptunnel/sw-config'
 const CACHE = 'iptunnel-sw-v2'
 const HEALTH = '/iptunnel/health'
+// CRITICAL: all own-origin URLs are built from location.origin, never
+// relative. The QR opens the tunnel as https://user:pass@host/ and the SW's
+// own script URL could carry that userinfo; a relative fetch would resolve
+// against it and Chromium rejects "a URL that includes credentials".
+const ownOrigin = location.origin
+const CFG_KEY = ownOrigin + CONFIG_PATH
 
 async function fetchConfig() {
   try {
-    const r = await fetch(CONFIG_PATH, { cache: 'no-store' })
+    const r = await fetch(ownOrigin + CONFIG_PATH, { cache: 'no-store' })
     if (r.ok) {
       const c = await r.json()
       try {
         const cache = await caches.open(CACHE)
-        await cache.put(CONFIG_PATH, new Response(JSON.stringify(c), { headers: { 'content-type': 'application/json' } }))
+        await cache.put(CFG_KEY, new Response(JSON.stringify(c), { headers: { 'content-type': 'application/json' } }))
       } catch (e) { /* cache full / disallowed: still usable */ }
       return c
     }
   } catch (e) { /* origin dead */ }
   try {
     const cache = await caches.open(CACHE)
-    const hit = await cache.match(CONFIG_PATH)
+    const hit = await cache.match(CFG_KEY)
     if (hit) return await hit.json()
   } catch (e) { /* no cache */ }
   return null
@@ -51,11 +57,11 @@ async function probe(origin) {
 // origin keep chasing afterwards (the 1033 failure mode without it).
 async function warmConfig() {
   try {
-    const r = await fetch(CONFIG_PATH, { cache: 'no-store' })
+    const r = await fetch(ownOrigin + CONFIG_PATH, { cache: 'no-store' })
     if (!r.ok) return
     const c = await r.json()
     const cache = await caches.open(CACHE)
-    await cache.put(CONFIG_PATH, new Response(JSON.stringify(c), { headers: { 'content-type': 'application/json' } }))
+    await cache.put(CFG_KEY, new Response(JSON.stringify(c), { headers: { 'content-type': 'application/json' } }))
   } catch (e) { /* origin already dead; nothing to warm */ }
 }
 
