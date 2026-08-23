@@ -33,10 +33,22 @@
   }
   tele('load')
   window.addEventListener('pagehide', function () { tele('hide') })
-  setInterval(function () {
+  // battery back-off: while nothing changes, stretch the tick 30s -> 45s ->
+  // 60s -> 90s -> 120s (radio wake-ups cost on a phone; reset on any event)
+  var tickMs = 30000
+  var timer = null
+  function schedule() {
+    clearInterval(timer)
+    timer = setInterval(tick, tickMs)
+  }
+  function backOff() {
+    tickMs = Math.min(120000, Math.round((tickMs || 30000) * 1.5))
+    schedule()
+  }
+  function tick() {
     tele('tick')
     fetch('/iptunnel/health', { cache: 'no-store' }).then(function (r) {
-      if (!r.ok) { location.replace('/iptunnel/entry'); return } // self dead -> re-home
+      if (!r.ok) { tickMs = 30000; location.replace('/iptunnel/entry'); return } // self dead -> re-home
       fetch('/iptunnel/sw-config', { cache: 'no-store' }).then(function (r2) { return r2.json() }).then(function (c) {
         try {
           caches.open('iptunnel-sw-v2').then(function (cache) {
@@ -44,10 +56,13 @@
           })
         } catch (e) { /* cache unavailable */ }
         if (c && c.primary && c.primary !== here) {
+          tickMs = 30000
           preauth(c.primary).then(function () { location.replace('/iptunnel/entry') })
           return
         }
-      }).catch(function () {})
-    }).catch(function () { location.replace('/iptunnel/entry') })
-  }, 30000)
+        backOff()
+      }).catch(function () { backOff() })
+    }).catch(function () { tickMs = 30000; location.replace('/iptunnel/entry') })
+  }
+  schedule()
 })()

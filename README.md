@@ -85,6 +85,23 @@ worker), `iptunnel-watchdog.js` (open-tab watchdog), `lib/client.js`
 (widget), `verify.sh` (end-to-end audit). `PLAN.md` = full spec + edge cases;
 `NOTES.md` = engineering history.
 
+## Resource footprint (minimal by default)
+
+- **Disabled = zero processes** (just the floating pill in the GUI).
+- **Enabled** = 1 node daemon + 1 auth proxy + 2 `cloudflared` per live
+  generation. Default ceiling: 4 generations × 2 = **8 tunnels**; idle
+  generations retire on their own (default 60 min idle), so steady state is
+  normally 4.
+- Knobs to shrink further: `DSH_MAX_GENS=2` (≤4 tunnels), `DSH_IDLE_MS=1200000`
+  (retire after 20 min idle), `DSH_PQ` — post-quantum handshake is **opt-in**
+  (`DSH_PQ=1`) because it costs CPU per connection; without it the tunnel uses
+  the classic handshake.
+- **Phone battery**: the watchdog backs off 30s → 120s while nothing changes
+  (radio wake-ups are the expensive part) and resets on any pool change;
+  `caffeinate -i` keeps the machine awake for the tunnels but lets the
+  **display sleep** (no screen-on drain on a MacBook).
+- Daemon log is capped at 512 KB (keeps the last 128 KB); probes run at 30 s.
+
 ## Security model
 
 - The password is **generated per Enable**, held in memory, shown in the
