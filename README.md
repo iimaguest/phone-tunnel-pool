@@ -26,14 +26,23 @@ the same URL, password and QR stay valid until you click Disable — no
 re-scan (an OS reboot still costs one fresh scan; a named tunnel removes even
 that — see [`PLAN.md`](./PLAN.md) §7).
 
-## Install
+## Install / Uninstall
 
 ```bash
-# 1. drop this folder into the dsh plugin directory
-git clone https://github.com/iimaguest/phone-tunnel-pool.git ~/.dsh/plugins/phone-tunnel-pool
-# 2. restart dsh web — the GUI shows a floating 📱 widget (bottom-right)
-# 3. open the widget -> Enable -> scan the QR with your phone camera
+# install (from this public repo)
+dsh plugin --profile web add github:iimaguest/phone-tunnel-pool
+dsh web        # the GUI shows a floating 📱 widget (bottom-right)
+
+# uninstall (one command — removes the dependency AND the dsh.profile.bundles layer)
+dsh plugin --profile web remove phone-tunnel-pool
+dsh web
 ```
+
+After install: open the widget → **Enable** → scan the QR with your phone
+camera. Install/remove reconcile `dsh.profile.bundles` against the installed
+state automatically — **never edit `~/.dsh/profiles/web/package.json` by hand**;
+a stray bundle entry with no matching dependency is exactly the kind of state
+that fails profile boot ("cannot resolve profile bundle").
 
 Requirements on the host: `cloudflared` (`brew install cloudflared`), `node`,
 `python3` with the `qrcode` package (`pip install qrcode`).
