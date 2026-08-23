@@ -99,16 +99,43 @@ const cookieValue = (req) => {
   }
   return ''
 }
+// constant-time compare (no early exit on prefix match)
+const safeEq = (a, b) => {
+  const A = Buffer.from(String(a))
+  const B = Buffer.from(String(b))
+  if (A.length !== B.length) return false
+  try { return crypto.timingSafeEqual(A, B) } catch { return false }
+}
 const authorized = (req) => {
-  if (cookieValue(req) === TOKEN) return true
+  if (safeEq(cookieValue(req), TOKEN)) return true
   const h = req.headers.authorization || ''
   if (!h.startsWith('Basic ')) return false
   const decoded = Buffer.from(h.slice(6), 'base64').toString()
   const i = decoded.indexOf(':')
   if (i === -1) return false
-  return decoded.slice(0, i) === USER && decoded.slice(i + 1) === PASS
+  return safeEq(decoded.slice(0, i), USER) && safeEq(decoded.slice(i + 1), PASS)
 }
-const withCookie = (headers) => ({ ...headers, 'Set-Cookie': `${COOKIE_NAME}=${TOKEN}; Path=/; SameSite=Lax; HttpOnly` })
+// per-IP auth-failure throttle: 20 failures/60s -> 429 for 30s (a legit phone
+// authenticates a handful of times; this only trips on brute-force attempts)
+const failStats = new Map()
+const clientIp = (req) => (req.headers['cf-connecting-ip'] || req.socket.remoteAddress || '?')
+const authLocked = (req) => {
+  const f = failStats.get(clientIp(req))
+  return f !== undefined && f.lockedUntil > Date.now()
+}
+const rememberFail = (req) => {
+  const now = Date.now()
+  let f = failStats.get(clientIp(req))
+  if (f === undefined || f.windowUntil < now) {
+    failStats.set(clientIp(req), { n: 1, windowUntil: now + 60000, lockedUntil: 0 })
+  } else {
+    f.n++
+    if (f.n >= 20) { f.lockedUntil = now + 30000; f.n = 0 }
+  }
+  if (failStats.size > 500) for (const [k, v] of [...failStats]) if (v.windowUntil + 600000 < now) failStats.delete(k)
+}
+const COOKIE_ATTRS = 'Path=/; SameSite=Lax; HttpOnly; Secure' // tunnel is always HTTPS
+const withCookie = (headers) => ({ ...headers, 'Set-Cookie': `${COOKIE_NAME}=${TOKEN}; ${COOKIE_ATTRS}` })
 const rewriteHeaders = (headers) => {
   const out = { ...headers }
   out.host = `${targetHost}:${targetPortStr}`
@@ -130,6 +157,11 @@ const deny = (res) => send(res, 401, {
   'WWW-Authenticate': 'Basic realm="dsh tunnel", charset="UTF-8"',
   'content-type': 'text/plain; charset=utf-8'
 }, 'authentication required')
+const rejectAuth = (req, res) => {
+  if (authLocked(req)) return send(res, 429, { 'content-type': 'text/plain; charset=utf-8', 'retry-after': '30' }, 'too many failed attempts — try again shortly')
+  rememberFail(req)
+  return deny(res)
+}
 const cors = { 'access-control-allow-origin': '*', 'cache-control': 'no-store' }
 const isInjectable = (pres) => {
   // only plain (uncompressed) html, and only when we can buffer it fully
@@ -154,7 +186,13 @@ const handlePublic = (req, res) => {
       try {
         const j = JSON.parse(body)
         const host = String(j.host || '').toLowerCase()
-        if (host) { const u = usageGet(host); u.tabs.set(String(j.tabId || 'x'), Date.now()); u.lastSeen = Date.now() }
+        if (host) {
+          const u = usageGet(host)
+          const now = Date.now()
+          if (u.tabs.size > 200) for (const [k, ts] of [...u.tabs]) if (now - ts > 60000) u.tabs.delete(k)
+          u.tabs.set(String(j.tabId || 'x'), now)
+          u.lastSeen = now
+        }
       } catch { /* ignore junk */ }
       send(res, 204, { ...cors }, '')
     })
@@ -167,8 +205,19 @@ const handlePublic = (req, res) => {
   // there, so migrations-by-redirect never trigger Safari's auth prompt.
   // OPTIONS carries no Authorization and must not 401 (CORS preflight).
   if (path === '/iptunnel/preauth') {
+    // only the pool's own origins may participate (a random web page cannot
+    // use the user's tunnel as a CORS oracle); no Origin = non-browser caller.
+    let allowOrigin = req.headers.origin || '*'
+    if (req.headers.origin) {
+      const hostOf = (o) => o.replace(/^https?:\/\//, '').replace(/:\d+$/, '').toLowerCase()
+      const poolHosts = new Set([...(poolConfig.list || []), poolConfig.primary].filter(Boolean).map(hostOf))
+      const self = hostOf(req.headers.host || '')
+      if (!poolHosts.has(hostOf(req.headers.origin)) && hostOf(req.headers.origin) !== self) {
+        return send(res, 403, { 'content-type': 'text/plain; charset=utf-8', 'access-control-allow-origin': 'null' }, 'origin not allowed')
+      }
+    }
     const pc = {
-      'access-control-allow-origin': req.headers.origin || '*',
+      'access-control-allow-origin': allowOrigin,
       'access-control-allow-credentials': 'true',
       'access-control-allow-headers': 'authorization, content-type',
       'access-control-allow-methods': 'GET, POST, OPTIONS',
@@ -176,8 +225,8 @@ const handlePublic = (req, res) => {
       'cache-control': 'no-store'
     }
     if (req.method === 'OPTIONS') return send(res, 204, pc, '')
-    if (!authorized(req)) return deny(res)
-    return send(res, 200, { ...pc, 'set-cookie': `${COOKIE_NAME}=${TOKEN}; Path=/; SameSite=Lax; HttpOnly` }, 'ok')
+    if (!authorized(req)) return rejectAuth(req, res)
+    return send(res, 200, { ...pc, 'set-cookie': `${COOKIE_NAME}=${TOKEN}; ${COOKIE_ATTRS}` }, 'ok')
   }
   return deny(res)
 }
@@ -261,10 +310,10 @@ const server = http.createServer((req, res) => {
   // counted as client usage (the daemon probes the same paths every 30s)
   if (PUBLIC.has(path)) return handlePublic(req, res)
   if (path.startsWith('/iptunnel/__ctl')) {
-    if (!authorized(req)) return deny(res)
+    if (!authorized(req)) return rejectAuth(req, res)
     return handleCtl(req, res)
   }
-  if (!authorized(req)) return deny(res)
+  if (!authorized(req)) return rejectAuth(req, res)
   forward(req, res)
 })
 
