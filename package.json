@@ -1,6 +1,6 @@
 {
   "name": "phone-tunnel-pool",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "One-click Cloudflare quick-tunnel pool for the dsh web GUI \u2014 access from your phone via QR, self-healing generations, chase service worker.",
   "type": "module",
   "main": "lib/index.js",
@@ -20,5 +20,17 @@
       "immediately": true
     }
   },
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ]
 }

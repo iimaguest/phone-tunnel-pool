@@ -44,6 +44,29 @@ state automatically — **never edit `~/.dsh/profiles/web/package.json` by hand*
 a stray bundle entry with no matching dependency is exactly the kind of state
 that fails profile boot ("cannot resolve profile bundle").
 
+## Prerequisites (all of them)
+
+| What | Needed? | Who provides it |
+|---|---|---|
+| `dsh web` running on its default port **3080** (`DSH_TARGET_PORT` to override) | required | you (the plugin tunnels *to* it) |
+| `cloudflared` binary on PATH | required | you — `brew install cloudflared` (or apt/dnf/Chocolatey, or set `DSH_CLOUDFLARED` to the existing binary) |
+| Node.js runtime | required | dsh itself — no separate install (the daemon reuses dsh's node) |
+| `python3` + `qrcode` package | optional | you — `pip install qrcode`; without it the widget shows URL + login instead of a scannable QR |
+| `caffeinate` | optional | macOS ships it; skipped elsewhere |
+| PowerShell | optional | Windows ships it — used only for process cleanup on Windows (no `pkill` there) |
+| Outbound network | required | cloudflared → Cloudflare edge on 443/7844 (no inbound port needed) |
+
+The widget **preflights these on dsh web start** and shows a yellow warning
+line (with the exact fix, e.g. `brew install cloudflared`) before you even
+click Enable; the daemon also fails fast with a readable error if cloudflared
+is missing at Enable time. cloudflared versions 2024.6+ get the full feature
+flag set; older builds (apt/dnf packages) get a reduced, compatible flag set —
+the daemon gates flags on `cloudflared --version`.
+
+**Platforms.** macOS, Linux and Windows (Windows uses PowerShell for process
+cleanup; `caffeinate` is macOS-only and silently skipped elsewhere). All
+temp/state files live in the per-OS temp directory (`os.tmpdir()`).
+
 ## Screenshots
 
 ![dsh web on a phone, reached through the tunnel pool](docs/phone-on-tunnel.jpg)
@@ -51,18 +74,6 @@ that fails profile boot ("cannot resolve profile bundle").
 ![Tunnel pool widget: a phone tunnel enabled with a live pool of generations](docs/screenshot-widget.png)
 
 *Live hostnames, credentials and the QR are blurred out in these shots.*
-
-Requirements on the host: `cloudflared` on PATH (`brew install cloudflared`, or
-point `DSH_CLOUDFLARED` at the binary), `node`,
-`python3` with the `qrcode` package (`pip install qrcode` — optional: without
-it the widget shows the URL + login instead of a scannable QR).
-
-**Platforms.** macOS, Linux and Windows (`dsh web` on Windows uses PowerShell
-for process cleanup; machine-wake (`caffeinate`) is macOS-only and silently
-skipped elsewhere). All temp/state files live in the per-OS temp directory
-(`os.tmpdir()`). cloudflared versions 2024.6+ get the full feature flag set;
-older builds (apt/dnf packages) get a reduced, compatible flag set — the
-daemon gates flags on `cloudflared --version`.
 
 ## How it's wired
 
