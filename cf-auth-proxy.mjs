@@ -385,6 +385,9 @@ const handleCtl = (req, res) => {
           const changed = j.token !== LAUNCH_TOKEN
           LAUNCH_TOKEN = j.token
           dshCookie = null // a new process token invalidates the old exchange
+          // drop any in-flight exchange started under the previous token so
+          // this mint is guaranteed to use the value just pushed
+          mintInFlight = null
           console.log('[iptunnel] launch token ' + (changed ? 'updated' : 'reconfirmed') + ' — reminting origin cookie')
           mintDshCookie().finally(() => send(res, 200, { 'content-type': 'application/json' }, '{"ok":true}'))
           return
