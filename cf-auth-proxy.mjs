@@ -41,6 +41,19 @@ const HERE = fileURLToPath(new URL('.', import.meta.url))
 
 if (!PASS) { console.error('DSH_PROXY_PASS is required'); process.exit(1) }
 
+// dsh 0.2 gates the web origin behind a per-process launch token: the desktop
+// URL carries ?token=<secret>, a valid token exchange mints a signed session
+// cookie, and every other request gets 401. The plugin reads the token off
+// the connection service and hands it here (env at spawn, or the
+// __ctl/launch-token route later — the token is per-process while a surviving
+// daemon outlives dsh restarts). With it this proxy mints the origin cookie
+// ONCE and stamps it onto everything it forwards, so a phone only ever
+// presents this proxy's Basic auth. Empty on pre-0.2 dsh: every piece below
+// then no-ops and forwarding stays byte-identical to before.
+let LAUNCH_TOKEN = process.env.DSH_LAUNCH_TOKEN || ''
+let dshCookie = null
+let mintInFlight = null
+
 // ---- static assets (self-contained; daemon self-heals the sibling files) ----
 function swSrc() {
   try { return readFileSync(HERE + 'iptunnel-sw.js', 'utf8') } catch (e) { return '' }
@@ -195,6 +208,48 @@ const withCookie = (headers) => {
   else out['set-cookie'] = ours
   return out
 }
+// ---- dsh origin auth (launch-token -> session cookie; no-op pre-0.2) ----
+// Exchange the launch token for the origin's session cookie exactly once.
+// Single-flight: a burst of 401s after a dsh restart must not mint a storm.
+function mintDshCookie() {
+  if (!LAUNCH_TOKEN) return Promise.resolve(null)
+  if (mintInFlight) return mintInFlight
+  mintInFlight = new Promise((resolve) => {
+    const req = http.request({
+      host: targetHost, port: Number(targetPortStr), method: 'GET',
+      path: '/?token=' + encodeURIComponent(LAUNCH_TOKEN),
+    }, (pres) => {
+      const raw = pres.headers['set-cookie']
+      pres.resume()
+      if (pres.statusCode === 303 && Array.isArray(raw) && raw.length) {
+        dshCookie = raw.map((c) => c.split(';')[0]).join('; ')
+        console.log('[iptunnel] dsh launch token accepted — origin session cookie minted')
+        resolve(dshCookie)
+      } else {
+        console.warn('[iptunnel] dsh token exchange rejected: HTTP ' + pres.statusCode)
+        resolve(null)
+      }
+    })
+    req.on('error', (e) => { console.warn('[iptunnel] dsh token exchange failed: ' + e.message); resolve(null) })
+    req.end()
+  })
+  const done = mintInFlight
+  done.finally(() => { if (mintInFlight === done) mintInFlight = null })
+  return done
+}
+// Merge the minted cookie into outgoing headers. Cookie names already present
+// on the incoming request are replaced by ours: a same-name value can only be
+// a stale mint, and the freshly exchanged one is what the origin honours.
+function stampDshCookie(headers) {
+  if (!dshCookie) return headers
+  const names = new Set(dshCookie.split(';').map((p) => p.split('=')[0].trim()))
+  const prior = headers.cookie
+  const kept = typeof prior === 'string' && prior !== ''
+    ? prior.split(';').filter((p) => !names.has(p.split('=')[0].trim()))
+    : []
+  return { ...headers, cookie: kept.concat([dshCookie]).join('; ') }
+}
+
 const rewriteHeaders = (headers) => {
   const out = { ...headers }
   out.host = `${targetHost}:${targetPortStr}`
@@ -206,7 +261,7 @@ const rewriteHeaders = (headers) => {
   // inject into it (isInjectable skips encoded responses -> inconsistent SW
   // registration; CF edge re-compresses on the way out anyway)
   out['accept-encoding'] = 'identity'
-  return out
+  return stampDshCookie(out)
 }
 const send = (res, status, headers, body) => {
   res.writeHead(status, headers)
@@ -320,6 +375,28 @@ const handleCtl = (req, res) => {
     })
     return
   }
+  if (path === '/iptunnel/__ctl/launch-token' && req.method === 'POST') {
+    let body = ''
+    req.on('data', (d) => { body += d.slice(0, 4096) })
+    req.on('end', () => {
+      try {
+        const j = JSON.parse(body)
+        if (typeof j.token === 'string' && j.token !== '') {
+          const changed = j.token !== LAUNCH_TOKEN
+          LAUNCH_TOKEN = j.token
+          dshCookie = null // a new process token invalidates the old exchange
+          // drop any in-flight exchange started under the previous token so
+          // this mint is guaranteed to use the value just pushed
+          mintInFlight = null
+          console.log('[iptunnel] launch token ' + (changed ? 'updated' : 'reconfirmed') + ' — reminting origin cookie')
+          mintDshCookie().finally(() => send(res, 200, { 'content-type': 'application/json' }, '{"ok":true}'))
+          return
+        }
+      } catch { /* fall through */ }
+      send(res, 400, { 'content-type': 'application/json' }, '{"ok":false}')
+    })
+    return
+  }
   if (path === '/iptunnel/__ctl/usage') {
     return send(res, 200, { 'content-type': 'application/json', 'cache-control': 'no-store' }, JSON.stringify(usageSnapshot()))
   }
@@ -327,12 +404,21 @@ const handleCtl = (req, res) => {
 }
 
 // ---- forward (authed) with optional watchdog injection ----
-const forward = (req, res) => {
+const forward = (req, res, retried) => {
   recordRequest(req)
   const headers = rewriteHeaders(req.headers)
   const preq = http.request({
     host: targetHost, port: Number(targetPortStr), method: req.method, path: req.url, headers
   }, (pres) => {
+    // Origin says unauthenticated: our minted cookie aged out or the dsh
+    // process restarted. Re-exchange and retry once. GET/HEAD only — a retry
+    // after the request body has been piped would replay it wrongly.
+    if (pres.statusCode === 401 && LAUNCH_TOKEN && !retried && (req.method === 'GET' || req.method === 'HEAD')) {
+      pres.resume()
+      console.warn('[iptunnel] origin rejected a forwarded request — reminting the dsh session cookie')
+      mintDshCookie().then(() => { try { forward(req, res, true) } catch (e) { try { res.destroy() } catch { /* */ } } })
+      return
+    }
     const doInject = pres.statusCode === 200 && isInjectable(pres)
     const outHeaders = withCookie(pres.headers)
     if (!doInject) {
@@ -415,5 +501,10 @@ server.on('upgrade', (req, socket, head) => {
 })
 
 server.listen(Number(listenPortStr), listenHost, () => {
-  console.log(`auth proxy listening on http://${listenHost}:${listenPortStr} -> http://${targetHost}:${targetPortStr}`)
+  const bound = server.address()
+  const shown = bound && typeof bound.port === 'number' && bound.port > 0 ? bound.port : listenPortStr
+  console.log(`auth proxy listening on http://${listenHost}:${shown} -> http://${targetHost}:${targetPortStr}`)
+  // mint eagerly so the first phone request already carries the cookie,
+  // instead of paying a 401 round trip through the tunnel
+  mintDshCookie()
 })

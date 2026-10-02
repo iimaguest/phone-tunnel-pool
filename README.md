@@ -108,6 +108,29 @@ worker), `iptunnel-watchdog.js` (open-tab watchdog), `lib/client.js`
 (widget), `verify.sh` (end-to-end audit). `PLAN.md` = full spec + edge cases;
 `NOTES.md` = engineering history.
 
+### The dsh 0.2 launch token (why the tunnel 401'd)
+
+dsh 0.2 moved web auth into the connection service: the desktop URL carries a
+per-process launch token (`http://127.0.0.1:3080/?token=<secret>`), a valid
+token exchange mints a signed browser-session cookie, and every request with
+neither gets `401`. The tunnel path is phone → trycloudflare → this proxy →
+the GUI, and a phone can never learn a token that only exists in the desktop
+process output — so on 0.2 the tunnel answered 401 all the way down.
+
+The fix (0.3.35): the plugin reads the token through the connection service's
+public `authenticatedUrl()` API and hands it to the proxy — via the daemon
+environment on a fresh enable, and via `POST /iptunnel/__ctl/launch-token`
+whenever a surviving daemon outlives a dsh restart (the token is
+per-process, the daemon is deliberately not). The proxy exchanges the token
+against the GUI once, holds the resulting session cookie, and stamps it onto
+every forwarded request and websocket handshake — re-minting on an upstream
+401 and on every token push. A phone therefore presents only this proxy's
+Basic auth, exactly as before, and the launch token never reaches cloudflared's
+environment, the QR, or the published URL. On a dsh without the gate the token
+is empty, every new code path no-ops, and forwarding is byte-identical to the
+pre-0.2 behaviour (`test/launch-token.test.mjs` pins all of this against a
+mock origin, including rotation).
+
 ## Resource footprint (minimal by default)
 
 - **Disabled = zero processes** (just the floating pill in the GUI).

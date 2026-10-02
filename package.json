@@ -1,6 +1,6 @@
 {
   "name": "phone-tunnel-pool",
-  "version": "0.3.34",
+  "version": "0.3.35",
   "description": "One-click Cloudflare quick-tunnel pool for the dsh web GUI \u2014 access from your phone via QR, self-healing generations, chase service worker.",
   "type": "module",
   "main": "lib/index.js",
@@ -34,7 +34,8 @@
     "x64"
   ],
   "scripts": {
-    "lint": "eslint lib/ cf-auth-proxy.mjs iptunnel-sw.js iptunnel-watchdog.js renderQR.sh 2>/dev/null || eslint lib/ cf-auth-proxy.mjs iptunnel-sw.js iptunnel-watchdog.js"
+    "lint": "eslint lib/ cf-auth-proxy.mjs iptunnel-sw.js iptunnel-watchdog.js renderQR.sh 2>/dev/null || eslint lib/ cf-auth-proxy.mjs iptunnel-sw.js iptunnel-watchdog.js",
+    "test": "node --test --test-timeout=20000 test/*.test.mjs"
   },
   "devDependencies": {
     "eslint": "^9.0.0"
